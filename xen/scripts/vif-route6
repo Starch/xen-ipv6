@@ -74,10 +74,13 @@ link_local()
 radvd_restart()
 {
     if service radvd status; then
+        log debug "reloading radvd"
         service radvd reload
     else
+        log debug "restarting radvd"
         service radvd start
     fi
+    log debug "radvd relaunched"
 }
 
 radvd_conf()
@@ -161,8 +164,7 @@ case "${command}" in
 esac
 
 for addr in ${ip}; do
-    is_ip6 ${addr}
-    if [ $? -eq 0 ]; then
+    if is_ip6 "${addr}"; then
         handle_ip6 ${ipcmd} ${dev} ${addr}
     else
         handle_ip4 ${ipcmd} ${dev} ${addr}
