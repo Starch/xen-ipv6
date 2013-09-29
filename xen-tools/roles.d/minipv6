@@ -76,10 +76,10 @@ chroot ${prefix} chown -R sysadmin:sysadmin /home/sysadmin/.ssh
 # Configure SSHd to not accept passwords and root, and only sysadmin user.
 # FIXME only sysadmin is maybe a bit too much
 ##
-sed -i -e \
-    's/PermitRootLogin yes/PermitRootLogin no/g' \
-    's/#PasswordAuthentication yes/PasswordAuthentication no/g' \
-    's/X11Forwarding yes/X11Forwarding no/g' \
+sed -i \
+    -e 's/PermitRootLogin yes/PermitRootLogin no/g' \
+    -e 's/#PasswordAuthentication yes/PasswordAuthentication no/g' \
+    -e 's/X11Forwarding yes/X11Forwarding no/g' \
     ${prefix}/etc/ssh/sshd_config
 echo 'AllowUsers sysadmin' >> ${prefix}/etc/ssh/sshd_config
 
