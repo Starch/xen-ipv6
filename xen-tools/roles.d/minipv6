@@ -1,0 +1,52 @@
+#!/bin/sh
+#
+# Basically, this does as the minimal role, but adds some IPv6 packages
+# (for autoconfiguration).
+#
+
+prefix=$1
+
+#
+#  Source our common functions - this will let us install a Debian package.
+#
+if [ -e /usr/lib/xen-tools/common.sh ]; then
+    . /usr/lib/xen-tools/common.sh
+else
+    echo "Installation problem"
+fi
+
+logMessage Script $0 starting with args $*
+
+##
+# Somei-cant-live-without packages.
+##
+installDebianPackage ${prefix} syslog-ng
+installDebianPackage ${prefix} deborphan
+installDebianPackage ${prefix} less
+installDebianPackage ${prefix} tmux
+installDebianPackage ${prefix} sudo
+installDebianPackage ${prefix} vim
+installDebianPackage ${prefix} dnsutils
+installDebianPackage ${prefix} bash-completion
+##
+# For autoconfiguration of DNS from router advertisement.
+##
+installDebianPackage ${prefix} rdnssd
+
+##
+# Now we create the sysadmin user, and populate some of its home.
+##
+chroot ${prefix} useradd -u 1000 -G sudo -s /bin/bash -m sysadmin
+mkdir -m 700 ${prefix}/home/sysadmin/.ssh
+cat /etc/xen-tools/keys/*.pub >> ${prefix}/home/sysadmin/.ssh/authorized_keys2
+chroot ${prefix} chown -R sysadmin:sysadmin /home/sysadmin/.ssh
+
+#
+# Upgrade packages
+#
+chroot ${prefix} /usr/bin/apt-get update
+chroot ${prefix} /usr/bin/apt-get upgrade -y
+chroot ${prefix} /usr/bin/apt-get clean
+
+# Prepare a radvd.conf for this image
+
