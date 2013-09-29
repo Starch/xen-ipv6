@@ -5,6 +5,25 @@
 #
 
 prefix=$1
+shift
+
+TEMP=`getopt -o n: --long netmask: -- "$@"`
+if [ $? != 0 ] ; then echo "Terminating..." >&2 ; exit 1 ; fi
+eval set -- "$TEMP"
+
+while true ; do
+    case "$1" in
+        -n|--netmask)
+            netmask=$2; shift 2;;
+        --) shift ; break ;;
+        *) echo "Internal error!" ; exit 1 ;;
+    esac
+done
+
+if [ -z "$netmask" ]; then
+    echo "missing ipv6 netmask: do not forget --role-args='--netmask 2001:...'"
+    exit 1
+fi
 
 #
 #  Source our common functions - this will let us install a Debian package.
@@ -13,6 +32,7 @@ if [ -e /usr/lib/xen-tools/common.sh ]; then
     . /usr/lib/xen-tools/common.sh
 else
     echo "Installation problem"
+    exit 1;
 fi
 
 logMessage Script $0 starting with args $*
@@ -20,7 +40,6 @@ logMessage Script $0 starting with args $*
 ##
 # Somei-cant-live-without packages.
 ##
-installDebianPackage ${prefix} syslog-ng
 installDebianPackage ${prefix} deborphan
 installDebianPackage ${prefix} less
 installDebianPackage ${prefix} tmux
@@ -34,12 +53,35 @@ installDebianPackage ${prefix} bash-completion
 installDebianPackage ${prefix} rdnssd
 
 ##
+# Add inet6 to /etc/network/interface
+##
+ip6=$(echo ${netmask} | cut -f 1 -d '/')::1
+ip6_netmask=$(echo ${netmask} | cut -f 2 -d '/')
+echo <<EOF >> ${prefix}/etc/network/interfaces
+
+iface eth0 inet6 static
+  address ${ip6}
+  netmask ${ip6_netmask}
+EOF
+
+##
 # Now we create the sysadmin user, and populate some of its home.
 ##
 chroot ${prefix} useradd -u 1000 -G sudo -s /bin/bash -m sysadmin
 mkdir -m 700 ${prefix}/home/sysadmin/.ssh
 cat /etc/xen-tools/keys/*.pub >> ${prefix}/home/sysadmin/.ssh/authorized_keys2
 chroot ${prefix} chown -R sysadmin:sysadmin /home/sysadmin/.ssh
+
+##
+# Configure SSHd to not accept passwords and root, and only sysadmin user.
+# FIXME only sysadmin is maybe a bit too much
+##
+sed -i -e \
+    's/PermitRootLogin yes/PermitRootLogin no/g' \
+    's/#PasswordAuthentication yes/PasswordAuthentication no/g' \
+    's/X11Forwarding yes/X11Forwarding no/g' \
+    ${prefix}/etc/ssh/sshd_config
+echo 'AllowUsers sysadmin' >> ${prefix}/etc/ssh/sshd_config
 
 #
 # Upgrade packages
