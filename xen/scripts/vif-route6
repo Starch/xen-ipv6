@@ -36,7 +36,7 @@ NETDEV=${netdev:-eth0}
 
 is_ip6()
 {
-    grep ":" "$i"
+    echo $1 | grep ":"
 }
 
 ##
@@ -73,8 +73,7 @@ link_local()
 ##
 radvd_restart()
 {
-    service radvd status
-    if [ $? -eq 0 ]; then
+    if service radvd status; then
         service radvd reload
     else
         service radvd start
@@ -133,7 +132,6 @@ handle_ip6() {
     ${iptcmd} OUTPUT -o ${device} -j ACCEPT
 
     radvd_conf $action $device $subnet
-    radvd_restart
 }
 
 handle_ip4() {
@@ -176,3 +174,13 @@ if [ "${command}" = "online" ]
 then
   success
 fi
+
+# The link will be ready only if success was called, so we must restart
+# radvd here. not sure about implications if it fails. Moreover it seems
+# that starting it too soon makes it to fail too (as interface has no
+# link-local yet).
+# FIXME maybe we should generate radvd conf from somewhere, eg. while
+# creating the VM, that would be more logical.
+sleep 5
+radvd_restart
+
