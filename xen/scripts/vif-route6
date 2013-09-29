@@ -1,0 +1,178 @@
+#!/bin/bash
+#============================================================================
+# ${XEN_SCRIPT_DIR}/vif-route6
+#
+# Script for configuring a vif in routed mode for ipv6. If the VM is
+# configured with a legacy ip address, also setup a NAT.
+#
+# The hotplugging system will call this script if it is specified either in
+# the device configuration given to Xend, or the default Xend configuration
+# in ${XEN_CONFIG_DIR}/xend-config.sxp.  If the script is specified in
+# neither of those places, then vif-bridge is the default.
+#
+# Usage:
+# vif-route6 (add|remove|online|offline)
+#
+# Environment vars:
+# dev         vif interface name (required).
+# XENBUS_PATH path to this device's details in the XenStore (required).
+#
+# Read from the store:
+# ip      list of IP networks for the vif, space-separated (default given in
+#         this script).
+#============================================================================
+
+dir=$(dirname "$0")
+. "${dir}/vif-common.sh"
+
+RADVD_DIR=/var/run/xen-hotplug/radvd
+mkdir -p $RADVD_DIR
+RADVD_HEAD=/etc/xen/radvd.conf.head
+RADVD_TAIL=/etc/xen/radvd.conf.tail
+RADVD_TPL=/etc/xen/radvd.conf.template
+
+# OUT interface
+NETDEV=${netdev:-eth0}
+
+is_ip6()
+{
+    grep ":" "$i"
+}
+
+##
+# Gets the first public legacy ip of NETDEV.
+##
+dom0_ip4()
+{
+    echo $(ip -4 addr show $NETDEV|grep 'scope global'|sort|head -n 1|awk '{print $2}'|cut -f 1 -d '/')
+}
+
+##
+# Gets the first link-global ip of NETDEV.
+##
+dom0_ip6()
+{
+    echo $(ip -6 addr show $NETDEV|grep 'scope global'|sort|head -n 1|awk '{print $2}'|cut -f 1 -d '/')
+}
+
+##
+# link_local $device
+#
+# Gets the link local adress (fe80::xx:xx:xx:xx/64) of the given device.
+##
+link_local()
+{
+    echo $(ip -6 addr show $1 | grep 'scope link' | sort | head -n 1 | awk '{print $2}' | cut -f 1 -d '/')
+}
+
+
+##
+# restarts the radvd daemon, with new configuration.
+#
+# FIXME this is probably debian specific :/
+##
+radvd_restart()
+{
+    service radvd status
+    if [ $? -eq 0 ]; then
+        service radvd reload
+    else
+        service radvd start
+    fi
+}
+
+radvd_conf()
+{
+    action=$1
+    device=$2
+    subnet=$3
+
+    log info "${action} radvd conf for device ${device} subnet ${subnet}"
+
+    case "${action}" in
+        add)
+            if [ -f "$RADVD_TPL" ]; then
+                sed -e "s/@interface@/${device}/" -e "s+@prefix@+${subnet}+" "$RADVD_TPL" > "$RADVD_DIR/radvd.${device}.conf"
+                find $RADVD_DIR -name "radvd.*.conf" | xargs cat > /etc/radvd.conf
+            fi
+            ;;
+
+        del)
+            if [ -f "$RADVD_DIR/radvd.${device}.conf" ]; then
+                rm "$RADVD_DIR/radvd.${device}.conf"
+                find $RADVD_DIR -name "radvd.*.conf" | xargs cat > /etc/radvd.conf
+            fi
+            ;;
+    esac
+}
+
+
+handle_ip6() {
+    action=$1
+    device=$2
+    subnet=$3
+
+    if [ "$action" == "add" ]; then
+        iptcmd="ip6tables -A"
+        ip -6 route add ${subnet} dev ${device}
+    else
+        iptcmd="do_without_error ip6tables -D"
+        do_without_error ip -6 route del ${subnet} dev ${device}
+    fi
+
+    log info "${action} iptable rules for device ${device} subnet ${subnet}"
+
+    ${iptcmd} INPUT -i ${device} -s ${subnet} -m state --state RELATED,ESTABLISHED -j ACCEPT
+    ${iptcmd} INPUT -i ${device} -s ${subnet} -m state --state NEW -p tcp --dport 53 -j ACCEPT
+    ${iptcmd} INPUT -i ${device} -s ${subnet} -m state --state NEW -p udp --dport 53 -j ACCEPT
+    ${iptcmd} INPUT -i ${device} -m limit --limit 5/min -j LOG --log-prefix "${device} v6: " --log-level 7
+    ${iptcmd} INPUT -i ${device} -j DROP
+    ${iptcmd} FORWARD -i ${device} -s ${subnet} -j ACCEPT
+    ${iptcmd} FORWARD -o ${device} -d ${subnet} -j ACCEPT
+    # FIXME antispoof ?
+    ${iptcmd} OUTPUT -o ${device} -j ACCEPT
+
+    radvd_conf $action $device $subnet
+    radvd_restart
+}
+
+handle_ip4() {
+    # Here we setup NAT for ip4.
+    return
+}
+
+main_ip=$(dom0_ip4)
+main_ip6=$(dom0_ip6)
+
+if [ -z "${ip}" ]; then
+    fatal "No IP provided"
+    # UNREACHED
+fi
+
+case "${command}" in
+    online)
+        ip -6 link set dev ${dev} up
+        ipcmd='add'
+        cmdprefix=''
+        ;;
+    offline)
+        do_without_error ip -6 link set dev ${dev} down
+        ipcmd='del'
+        cmdprefix='do_without_error'
+        ;;
+esac
+
+for addr in ${ip}; do
+    is_ip6 ${addr}
+    if [ $? -eq 0 ]; then
+        handle_ip6 ${ipcmd} ${dev} ${addr}
+    else
+        handle_ip4 ${ipcmd} ${dev} ${addr}
+    fi
+done
+
+log info "Successful vif-route6 ${command} for ${dev}."
+if [ "${command}" = "online" ]
+then
+  success
+fi
