@@ -1,0 +1,15 @@
+
+## conf for device @interface@
+
+interface @interface@ {
+  AdvSendAdvert on;
+  prefix @prefix@ {
+    AdvOnLink on;
+    AdvAutonomous on;
+    AdvRouterAddr on;
+  };
+
+  RDNSS 2001:db8:cafe:babe::1 {
+  };
+};
+
