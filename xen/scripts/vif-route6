@@ -155,6 +155,7 @@ handle_ip4() {
 
     # VM -> outside: masquerade
     ${iptcmd} POSTROUTING -t nat -s ${subnet} -o ${NETDEV} -j MASQUERADE
+    ${iptcmd} FORWARD -s ${subnet} -i ${device} -j ACCEPT
     # outside -> VM: only related paquets.
     ${iptcmd} FORWARD -i ${NETDEV} -o ${device} -m state --state RELATED,ESTABLISHED -j ACCEPT
 }
