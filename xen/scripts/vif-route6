@@ -36,7 +36,7 @@ NETDEV=${netdev:-eth0}
 
 is_ip6()
 {
-    echo $1 | grep ":"
+    echo "$1" | grep ":"
 }
 
 ##
@@ -115,7 +115,6 @@ handle_ip6() {
     subnet=$3
 
     if [ "$action" == "add" ]; then
-        ip -6 link set dev ${device} up
         ip -6 route add ${subnet} dev ${device}
         iptcmd="ip6tables -A"
     else
