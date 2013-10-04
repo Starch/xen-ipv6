@@ -115,11 +115,13 @@ handle_ip6() {
     subnet=$3
 
     if [ "$action" == "add" ]; then
-        iptcmd="ip6tables -A"
+        ip -6 link set dev ${device} up
         ip -6 route add ${subnet} dev ${device}
+        iptcmd="ip6tables -A"
     else
-        iptcmd="do_without_error ip6tables -D"
+        do_without_error ip -6 link set dev ${device} down
         do_without_error ip -6 route del ${subnet} dev ${device}
+        iptcmd="do_without_error ip6tables -D"
     fi
 
     log info "${action} iptable rules for device ${device} subnet ${subnet}"
@@ -138,8 +140,24 @@ handle_ip6() {
 }
 
 handle_ip4() {
-    # Here we setup NAT for ip4.
-    return
+    action=$1
+    device=$2
+    subnet=$3
+
+    if [ "$action" == "add" ]; then
+        ip -4 route add ${subnet} dev ${device}
+        iptcmd="iptables -A"
+    else
+        do_without_error ip -4 route del ${subnet} dev ${device}
+        iptcmd="do_without_error iptables -D"
+    fi
+
+    log info "${action} iptable rules for device ${device} subnet ${subnet}"
+
+    # VM -> outside: masquerade
+    ${iptcmd} POSTROUTING -t nat -s ${subnet} -o ${NETDEV} -j MASQUERADE
+    # outside -> VM: only related paquets.
+    ${iptcmd} FORWARD -i ${NETDEV} -o ${device} -m state --state RELATED,ESTABLISHED -j ACCEPT
 }
 
 main_ip=$(dom0_ip4)
@@ -152,12 +170,12 @@ fi
 
 case "${command}" in
     online)
-        ip -6 link set dev ${dev} up
+        ip link set dev ${dev} up
         ipcmd='add'
         cmdprefix=''
         ;;
     offline)
-        do_without_error ip -6 link set dev ${dev} down
+        do_without_error ip link set dev ${dev} down
         ipcmd='del'
         cmdprefix='do_without_error'
         ;;
