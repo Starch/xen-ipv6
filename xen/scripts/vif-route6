@@ -39,6 +39,11 @@ is_ip6()
     echo "$1" | grep ":"
 }
 
+is_ip4_private()
+{
+    echo "$1" | egrep "^(10\.|192\.168\.)";
+}
+
 ##
 # Gets the first public legacy ip of NETDEV.
 ##
@@ -153,11 +158,22 @@ handle_ip4() {
 
     log info "${action} iptable rules for device ${device} subnet ${subnet}"
 
-    # VM -> outside: masquerade
-    ${iptcmd} POSTROUTING -t nat -s ${subnet} -o ${NETDEV} -j MASQUERADE
-    ${iptcmd} FORWARD -s ${subnet} -i ${device} -j ACCEPT
-    # outside -> VM: only related paquets.
-    ${iptcmd} FORWARD -i ${NETDEV} -o ${device} -m state --state RELATED,ESTABLISHED -j ACCEPT
+    if is_ip4_private "$subnet"; then
+        # VM -> outside: masquerade
+        ${iptcmd} POSTROUTING -t nat -s ${subnet} -o ${NETDEV} -j MASQUERADE
+        ${iptcmd} FORWARD -s ${subnet} -i ${device} -j ACCEPT
+        # outside -> VM: only related paquets.
+        ${iptcmd} FORWARD -i ${NETDEV} -o ${device} -m state --state RELATED,ESTABLISHED -j ACCEPT
+    else
+        # public IP => route
+        ${iptcmd} INPUT -i ${device} -s ${subnet} -m state --state RELATED,ESTABLISHED -j ACCEPT
+        ${iptcmd} INPUT -i ${device} -m limit --limit 5/min -j LOG --log-prefix "${device} v4: " --log-level 7
+        ${iptcmd} INPUT -i ${device} -j DROP
+        ${iptcmd} FORWARD -i ${device} -s ${subnet} -j ACCEPT
+        ${iptcmd} FORWARD -o ${device} -d ${subnet} -j ACCEPT
+        # FIXME antispoof ?
+        ${iptcmd} OUTPUT -o ${device} -j ACCEPT
+    fi
 }
 
 main_ip=$(dom0_ip4)
