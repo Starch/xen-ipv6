@@ -166,6 +166,12 @@ handle_ip4() {
         ${iptcmd} FORWARD -i ${NETDEV} -o ${device} -m state --state RELATED,ESTABLISHED -j ACCEPT
     else
         # public IP => route
+        # on dedibox, proxy_arp needs to be set to 1 so that packets destinated to our public IP
+        # reach us.
+        if [ "$action" == "add" ]; then
+            echo 1 > /proc/sys/net/ipv4/conf/${NETDEV}/proxy_arp
+        fi
+
         ${iptcmd} INPUT -i ${device} -s ${subnet} -m state --state RELATED,ESTABLISHED -j ACCEPT
         ${iptcmd} INPUT -i ${device} -m limit --limit 5/min -j LOG --log-prefix "${device} v4: " --log-level 7
         ${iptcmd} INPUT -i ${device} -j DROP
